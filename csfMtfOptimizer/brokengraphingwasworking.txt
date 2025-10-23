@@ -1,0 +1,166 @@
+
+        self.ax_optic.clear()
+        #broken rn inside
+        # Call draw() to get a temp figure & axes with the plot
+        fig_temp, ax_temp = system.draw(num_rays=3, figsize=(10,4))
+
+        # Copy lines from temp axes to your embedded axes
+        for line in ax_temp.get_lines():
+            xdata = line.get_xdata()
+            ydata = line.get_ydata()
+            style = line.get_linestyle()
+            color = line.get_color()
+            label = line.get_label()
+            self.ax_optic.plot(xdata, ydata, linestyle=style, color=color, label=label)
+
+        # Optionally copy patches too (like circles/arcs)
+        for patch in ax_temp.patches:
+            # Create a new patch of the same type with the same properties
+            patch_type = type(patch)
+            new_patch = patch_type(**patch.properties())
+            self.ax_optic.add_patch(new_patch)
+
+        # Set your axes limits based on your geometry (example)
+        x_left = 1.1 * opticalGeometry.l  # or wherever you want
+        x_right = opticalGeometry.l + 1.1 * opticalGeometry.bfl
+        self.ax_optic.set_xlim(x_left, x_right)
+        self.ax_optic.set_ylim(ax_temp.get_ylim())
+
+        # Optionally set title and legend
+
+
+        plt.close(fig_temp)  # Close the temp figure to free memory
+
+        # Redraw your embedded figure canvas
+        self.fig.canvas.draw_idle()
+
+        self.update_info_panel(opticalGeometry)
+
+        self.fig.canvas.draw_idle()
+
+
+
+
+
+
+
+Broken off axis nodal distance from eye to retina (was gonna use for off axis distance calculations to find more accurate cycles/deg to mtf conversions but on axis should be ok)
+
+
+    #visisipy eye calcs
+    model = opticalEyeModel
+    geometry = eyeModelGeometry
+    retina_radius = model.retina.radius
+
+    cardinal_points = visisipy.analysis.cardinal_points(geometry)
+    print("Cardinal points")
+    second_nodal_point = cardinal_points.nodal_points.image + (model.lens_thickness + model.vitreous_thickness)
+    print(f"Second std: {second_nodal_point}")
+
+    axial_length = model.axial_length
+    nodalToRetina = axial_length - second_nodal_point
+    print(f"2nd to retina {nodalToRetina}")
+
+
+    #system calcs
+    r1 = system.surface_group.surfaces[1].geometry.radius
+    r2 = system.surface_group.surfaces[2].geometry.radius
+    l = float(system.surface_group.get_thickness(1))
+
+    eflObj = solveAplanat.aplanat.solve_efl(r1, r2, l)
+    maxField = opticalGeometry.maxField
+    mSys = eflObj / opticalGeometry.eyepieceEfl
+
+
+    #distance calcs
+    theta_eye_deg = mSys * maxField
+    theta_eye_rad = be.deg2rad(theta_eye_deg)
+
+
+    # Chord length from nodal point to retinal intersection
+    nodalToRetina = abs(2 * retina_radius * be.sin(theta_eye_rad / 2))
+    print(f"Nodal-to-retina distance at {theta_eye_deg}°: {nodalToRetina} mm")
+
+    print(str(theta_eye_deg))
+
+
+
+
+
+
+This was working good it was an info panel in bottom right, changing over to csf data since the data is redundant anyway and console outputs the other useful data
+
+
+
+
+
+    def update_info_panel(self, opticalGeometry):
+        self.ax_info.clear()
+        self.ax_info.axis("off")
+
+        # --- Mirror geometry ---
+        conic_primary = opticalGeometry.k1
+        conic_secondary = opticalGeometry.k2
+        mirror_sep = opticalGeometry.l
+        mag = opticalGeometry.m
+        obstruction_ratio = opticalGeometry.co
+        ubfl = opticalGeometry.ubfl
+        medianCurv = opticalGeometry.medianCurvature
+
+
+        # --- Text content ---
+        info_lines = [
+            f"Mirror Conics:",
+            f"  Primary: {conic_primary}",
+            f"  Secondary: {conic_secondary}",
+            f"",
+            f"Mirror Separation: {mirror_sep:.2f} mm",
+            f"Magnification: {mag:.2f}",
+            f"Central Obstruction: {obstruction_ratio}",
+            f"UBFL: {ubfl:.2f} mm",
+            f"",
+            f"Median Field Curvature:",
+            f"  Median: {medianCurv:.2f} mm",
+        ]
+
+        # --- Render text ---
+        for i, line in enumerate(info_lines):
+            self.ax_info.text(0.0, 1.0 - 0.07 * i, line, fontsize=10, ha="left", va="top", transform=self.ax_info.transAxes)
+
+        self.fig.canvas.draw_idle()
+
+
+##############
+was using this code to interpolate a field grid to try to make fft image convlution better but it just made a bunch of tiny black squares.
+probably need to go over and do pixel by pixel image convulution instead :(
+
+        system.fields.fields = [] #clear fields before image sim
+        system.set_field_type(field_type="angle")
+
+
+
+        field_angles = be.array(opticalGeometry.field_angles)
+        interp_points_between = 4 # 10 points betwen each field interpolated
+        # Use np.linspace between min and max with the total desired number of points:
+        new_length = (len(field_angles) - 1) * interp_points_between + 1
+        new_field_angles = be.linspace(field_angles[0], field_angles[-1], new_length)
+
+        for y in new_field_angles:
+            for x in new_field_angles:
+                system.add_field(x=x, y=y)
+       # print(system.fields.fields)
+        opticalGeometry.field_angles = []
+        for f in system.fields.fields:
+            print(str(f.y))
+            opticalGeometry.field_angles.append(f.y)
+        print(str(opticalGeometry.field_angles))
+        imageSim = imageSimulation.createImage(system, opticalGeometry)
+        imageSimulation.createImage.simulate(imageSim)
+
+        system.fields.fields = [] #clear fields after image sim
+        system.set_field_type(field_type="angle")
+        system.add_field(y=0)
+        system.add_field(y=0.5)
+        system.add_field(y=0.9)
+        print(system.fields.fields)
+
